@@ -11,6 +11,8 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+
+
 /**
  * Check if the route exist
  * @param string $route_uri URI to be matched
@@ -26,6 +28,75 @@ function new_route($route_uri, $request_type){
     }
 }
 
+function connect_db($host, $db, $user, $pass){
+    $charset = 'utf8mb4';
+    $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ];
+    try {
+        $pdo = new PDO($dsn, $user, $pass, $options);
+    } catch (\PDOException $e) {
+        echo sprintf("Failed to connect. %s",$e->getMessage());
+    }
+    return $pdo;
+}
+
+function count_series($pdo) {
+    $stmt = $pdo->prepare('SELECT * FROM series');
+    $stmt->execute();
+    $serie_count = $stmt->rowCount();
+
+    return $serie_count;
+}
+
+function get_series($pdo) {
+    $stmt = $pdo->prepare('SELECT * FROM series');
+    $stmt->execute();
+    $all_rows = $stmt->fetchAll();
+    $all_series = Array();
+
+    foreach ($all_rows as $key => $value) {
+        foreach ($value as $user_key => $user_input) {
+            $all_series[$key][$user_key] = htmlspecialchars($user_input);
+        }
+    }
+    return $all_series;
+}
+
+function get_series_table($series) {
+    $table_code = '<table class="table table-hover">
+        <thead>
+        <tr>
+            <th scope="col">Series</th>
+            <th scope="col"></th>
+        </tr>
+        </thead>
+        <tbody>';
+    foreach($series as $key => $value) {
+        $table_code .= '
+        <tr>
+            <th scope="row">'.$value['name'].'</th>
+            <td><a href="/DDWT18/week1/serie/?serie_id='.$value['id'].'" role="button" class="btn btn-primary">More info</a></td>
+        </tr>';
+    }
+    $table_code .= '</tbody>
+    </table>';
+    return $table_code;
+}
+
+function get_series_info($pdo, $serie_id) {
+    $stmt = $pdo->prepare('SELECT * FROM series WHERE id = ?');
+    $stmt->execute([$serie_id]);
+    $serie_info = $stmt->fetch();
+    $serie_info_exp = Array();
+    /* Create array with htmlspecialchars */
+    foreach ($serie_info as $key => $value){
+        $serie_info_exp[$key] = htmlspecialchars($value);
+    }
+    return $serie_info_exp;
+}
 /**
  * Creates a new navigation array item using url and active status
  * @param string $url The url of the navigation item
@@ -118,4 +189,107 @@ function get_error($feedback){
             '.$feedback['message'].'
         </div>';
     return $error_exp;
+}
+function add_series($name, $creator, $seasons, $abstract, $pdo) {
+    $stmt = $pdo->prepare('SELECT * FROM series WHERE name = ?');
+    $stmt->execute([$_POST['Name']]);
+    $serie = $stmt->rowCount();
+    if (empty($name) or empty($creator) or empty($seasons) or empty($abstract)) {
+        return [
+            'type' => 'danger',
+            'message' => 'There was an error. Not all fields were filled in.'
+        ];
+    } elseif (!is_numeric($seasons)) {
+        return [
+            'type' => 'danger',
+            'message' => 'There was an error. You should enter a number in the field Seasons.'
+        ];
+    } elseif ($serie){
+        return [
+            'type' => 'danger',
+            'message' => 'This series was already added.'
+        ];
+    } else {
+        $stmt = $pdo->prepare("INSERT INTO series (name, creator, seasons, abstract) VALUES (?, ?, ?, ?)");
+        $stmt->execute([
+            $name, $creator, $seasons, $abstract
+        ]);
+        $inserted = $stmt->rowCount();
+        if ($inserted == 1) {
+            return [
+                'type' => 'success',
+                'message' => sprintf("Series '%s' added to Series Overview.", $name)
+            ];
+        }
+        else {
+            return [
+                'type' => 'danger',
+                'message' => 'There was an error. The series was not added. Try it again.'
+            ];
+        }
+    }
+
+}
+
+function update_series($name, $creator, $seasons, $abstract, $id, $pdo) {
+    $stmt = $pdo->prepare('SELECT * FROM series WHERE id = ?');
+    $stmt->execute([$id]);
+    $serie = $stmt->fetch();
+    $current_name = $serie['name'];
+    $stmt = $pdo->prepare('SELECT * FROM series WHERE name = ?');
+    $stmt->execute([$name]);
+    $serie = $stmt->fetch();
+    if (empty($name) or empty($creator) or empty($seasons) or empty($abstract) or empty($id)) {
+        return [
+            'type' => 'danger',
+            'message' => 'There was an error. Not all fields were filled in.'
+        ];
+    } elseif (!is_numeric($seasons)) {
+        return [
+            'type' => 'danger',
+            'message' => 'There was an error. You should enter a number in the field Seasons.'
+        ];
+    } elseif ($name == $serie['name'] and $serie['name'] != $current_name) {
+        return [
+            'type' => 'danger',
+            'message' => 'This series was already added.'
+        ];
+    } else {
+            $stmt = $pdo->prepare("UPDATE series SET name = ?, creator = ?, seasons = ?, abstract = ? WHERE id = ?");
+        $stmt->execute([
+            $name, $creator, $seasons, $abstract, $id
+        ]);
+        $updated = $stmt->rowCount();
+        if ($updated == 1) {
+            return [
+                'type' => 'success',
+                'message' => sprintf("Series '%s' edited to Series Overview.", $name)
+            ];
+        }
+        else {
+            return [
+                'type' => 'danger',
+                'message' => 'There was an error. The series was not edited. Try it again.'
+            ];
+        }
+    }
+
+}
+
+function remove_serie($serie_id, $pdo) {
+    $stmt = $pdo->prepare("DELETE FROM series WHERE id = ?");
+    $stmt->execute([$serie_id]);
+    $deleted = $stmt->rowCount();
+    if ($deleted == 1) {
+        return [
+            'type' => 'success',
+            'message' => sprintf("Series was removed!")
+        ];
+    }
+    else {
+        return [
+            'type' => 'warning',
+            'message' => 'An error occurred. The series was not removed.'
+        ];
+    }
 }
